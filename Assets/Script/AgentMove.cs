@@ -9,22 +9,30 @@ using Random = System.Random;
 
 public class AgentMove : MonoBehaviour
 {
+    public Action GroundStateChangeCallBack;
+    public Action HitMoveStateChangeCallBack;
     private NavMeshAgent _agent;
 
-    private Vector3 targetPos;
     private Animator _animator;
-
+    public Vector3 destination;
     public bool debug;
-
+    /// <summary>
+    /// 期望速度（不包含重力）
+    /// </summary>
     public Vector3 desireVelocity;
     // public static int ObstacleAreaMask =
     //     1 << NavMesh.GetAreaFromName("Area10") | 1 << NavMesh.GetAreaFromName("Area9");
 
     public Transform targetTrans;
     public Vector3 hitPos;
+    public bool ActiveAgent => _agent.isActiveAndEnabled && _agent.isOnNavMesh;
     [Header("Movement")] public float rotateSpeed = 180;
 
     public float stepHeight = 0.75f;
+    /// <summary>
+    /// 检测位置（stepHeight+0.1f，+0.1f解决误差问题）
+    /// </summary>
+    public float StepCheckOffset => stepHeight + 0.1f;
 
     /// <summary>
     /// 超过此旋转角度需要停止移动
@@ -64,6 +72,8 @@ public class AgentMove : MonoBehaviour
     [Header("Avoid")]
     private AgentMove[] agentMoves;
 
+    private bool preGround;
+    private bool preHitMove;
 
     /// <summary>
     /// 地面摩擦力系数
@@ -79,7 +89,11 @@ public class AgentMove : MonoBehaviour
     /// </summary>
     public Vector3 otherVelocity;
 
+    public bool InHitMove => otherVelocity.magnitude > 0.1f;
+    public bool InAvoidMove => avoidVelocity.magnitude > 0.1f;
     public Vector3 hitV;
+
+    public LayerMask ignoreLayerMask;
     void Start()
     {
         _agent = GetComponent<NavMeshAgent>();
@@ -90,13 +104,18 @@ public class AgentMove : MonoBehaviour
         _agent.acceleration = 0;
         _agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
         agentMoves = GameObject.FindObjectsOfType<AgentMove>();
+        ignoreLayerMask = ~(1 << LayerMask.NameToLayer("Body"));
+
+        GroundStateChangeCallBack = GroundStateChange;
+        HitMoveStateChangeCallBack = HitMoveStateChange;
     }
 
     void Update()
     {
         ResetAgent();
         ResetAvoidVelocity();
-
+        ResetDesireVelocity();
+        
         float deltaTime = Time.deltaTime;
         //_agent.
         if (debug)
@@ -121,11 +140,21 @@ public class AgentMove : MonoBehaviour
         CheckGround();
 
         CalculateOtherVelocity(deltaTime);
-        if (otherVelocity.magnitude<0.01f)
+        // if (InHitMove==false)
+        // {
             CalculateAvoidVelocity();
 
-        Movement(deltaTime);
+            CalculateDesireVelocity(deltaTime);
+        //}
 
+        if (Grounded == false)
+        {
+            ApplyGravity(deltaTime);
+        }
+        else
+        {
+            ResetFallVelocity();
+        }
 
         FinalMove(deltaTime);
         CheckArrived();
@@ -134,9 +163,9 @@ public class AgentMove : MonoBehaviour
 
     public void Move(Vector3 targetPos)
     {
-        this.targetPos = targetPos;
         _agent.isStopped = false;
         _agent.SetDestination(targetPos);
+        destination = targetPos;
     }
 
     private void DrawNavigationPath(NavMeshPath path, Color color, float duration = 0)
@@ -170,11 +199,12 @@ public class AgentMove : MonoBehaviour
         _animator.SetFloat("vely", dy);
     }
 
-    private void Movement(float deltaTime)
+    private void CalculateDesireVelocity(float deltaTime)
     {
         //Vector3 velocity = _agent.desiredVelocity;
-        desireVelocity = _agent.desiredVelocity;
-        Vector3 desireV2D = new Vector3(desireVelocity.x, 0, desireVelocity.z);
+        Vector3 willDir= _agent.desiredVelocity;
+        
+        Vector3 desireV2D = new Vector3(willDir.x, 0, willDir.z);
         Rotate(desireV2D, deltaTime);
 
         float angle = Vector3.Angle(desireV2D, transform.forward);
@@ -186,24 +216,15 @@ public class AgentMove : MonoBehaviour
         {
             desireVelocity = Vector3.zero;
         }
-        if (avoidVelocity != Vector3.zero)
+        if (InAvoidMove)
         {
             desireVelocity = avoidVelocity;
         }
-        if (Grounded == false)
-        {
-            ApplyGravity(deltaTime);
-        }
-        else
-        {
-            ResetFallVelocity();
-        }
-    }
 
-    private void FinalMove(float deltaTime)
-    {
-        Vector3 deltaMove = (desireVelocity + fallVelocity) * deltaTime;
-        float deltaMoveDis = deltaMove.magnitude;
+        if (InHitMove)
+        {
+            desireVelocity = otherVelocity;
+        }
         Vector3 upModifyVelocity = Vector3.zero;
         if (Grounded)
         {
@@ -213,38 +234,80 @@ public class AgentMove : MonoBehaviour
                 upModifyVelocity = upModifySpeed * Vector3.up * deltaTime;
         }
 
+        desireVelocity += upModifyVelocity;
+    }
+
+    private void FinalMove(float deltaTime)
+    {
+        
+
         Debug.DrawRay(transform.position + 2 * Vector3.up, desireVelocity, Color.yellow);
         Debug.DrawRay(transform.position + 2 * Vector3.up, _agent.desiredVelocity, Color.red);
-        //if (_agent.remainingDistance < deltaMoveDis && avoidVelocity == Vector3.zero)
-        //{
-        //    //transform.position = _agent.destination;
-        //    //_agent.isStopped=true;
-        //    Debug.Log(string.Format("<color=red>{0}arrived</color>", transform.gameObject.name));
-        //}
-        //else
-        //{
-            Vector3 targetPos = transform.position + (desireVelocity + otherVelocity + fallVelocity + upModifyVelocity) * deltaTime;
-            if (_agent.Raycast(targetPos, out var navHit))
+       
+        //掉落检测,重力单独算（检测位置不一样，所以无法和上面的检测共用一个射线） 
+        if (Grounded == false)
+        {
+            Vector3 fallTargetPos = transform.position + (fallVelocity+otherVelocity.y*Vector3.up) * deltaTime;
+            float y;
+            if (Physics.Linecast(transform.position,fallTargetPos, out var hit,ignoreLayerMask))
             {
-                hitPos = navHit.position;
-                Debug.Log("<color=red>hitPos</color>");
-                transform.position = navHit.position;
+                y = hit.point.y;
             }
             else
             {
-                transform.position = targetPos;
+                y = fallTargetPos.y;
             }
-        //}
+            transform.position = new Vector3(fallTargetPos.x,y,fallTargetPos.z);
+        }
+        Vector3 simulateTargetPos=transform.position +desireVelocity * deltaTime;
+        //检测水平击退碰撞
+        if (InHitMove)
+        {
+            Vector3 dir = otherVelocity;
+            dir.y = 0;
+            if (dir.magnitude > 0.01f)
+            {
+                //dir = dir.normalized;
+                Debug.DrawLine(transform.position + StepCheckOffset * Vector3.up,
+                    transform.position + StepCheckOffset * Vector3.up + dir.normalized * _agent.radius,
+                    Color.red);
+                if (Physics.Linecast(transform.position + StepCheckOffset * Vector3.up,
+                    transform.position + StepCheckOffset * Vector3.up + dir.normalized * _agent.radius,
+                    out var hit,
+                    ignoreLayerMask))
+                {
+                    desireVelocity -= otherVelocity;
+                    ResetOtherVelocity();
+                    UnityEditor.EditorApplication.isPaused = true;
+                }
+            }
+        }
+        simulateTargetPos=transform.position +desireVelocity * deltaTime;
+        //只在避障的时候保证不出网格（在平时移动的时候也做判定有时候在拐角也会有击中的情况，会导致卡住）
+        if (InAvoidMove&&_agent.Raycast(simulateTargetPos, out var navHit))
+        {
+            transform.position = new Vector3(navHit.position.x, transform.position.y, navHit.position.z);
+        }
+        else if(Grounded)
+        {
+            transform.position = transform.position + desireVelocity * deltaTime;
 
+        }
+        else if(Grounded==false)
+        {
+            Vector3 hDesireVelocity = desireVelocity;
+            hDesireVelocity.y = 0;
+            transform.position = transform.position + hDesireVelocity * deltaTime;
+        }
     }
 
     private void CheckGround()
     {
         //需要注意台阶高度，stepHeight需要 >= NavmeshBuildSetting 里面的烘培参数stepHeight,不然会出现上台阶掉落情况
-        Debug.DrawRay(transform.position + (stepHeight + 0.1f) * Vector3.up,
+        Debug.DrawRay(transform.position + StepCheckOffset * Vector3.up,
             (GroundCheckStartOffset + GroundOffset) * Vector3.down, Color.red);
-        if (Physics.Raycast(transform.position + (stepHeight + 0.1f) * Vector3.up, Vector3.down, out GroundHitInfo,
-            GroundChekRayLength, ~(1 << LayerMask.NameToLayer("Body"))))
+        if (Physics.Raycast(transform.position + StepCheckOffset * Vector3.up, Vector3.down, out GroundHitInfo,
+            GroundChekRayLength, ignoreLayerMask))
         {
             disToGround = Vector3.Distance(transform.position, GroundHitInfo.point);
 
@@ -264,6 +327,12 @@ public class AgentMove : MonoBehaviour
             disToGround = 999;
         }
 
+        if (preGround != Grounded)
+        {
+            GroundStateChangeCallBack.Invoke();
+        }
+
+        preGround = Grounded;
         // if (Grounded==false)
         // {
         //     UnityEditor.EditorApplication.isPaused = true;
@@ -276,15 +345,8 @@ public class AgentMove : MonoBehaviour
     /// <param name="deltaTime"></param>
     private void ApplyGravity(float deltaTime)
     {
-        fallVelocity += Gravity * Vector3.down;
-        Vector3 nextPos = transform.position + fallVelocity * deltaTime;
-        if (Physics.Linecast(transform.position + (stepHeight + 0.1f) * Vector3.up, nextPos, out var hit,
-            ~(1 << LayerMask.NameToLayer("Body"))))
-        {
-            nextPos = hit.point;
-        }
-
-        fallOffset = nextPos - transform.position;
+        fallVelocity += Gravity * Vector3.down*deltaTime;
+       
     }
     private void ResetAvoidVelocity()
     {
@@ -358,6 +420,8 @@ public class AgentMove : MonoBehaviour
     /// </summary>
     private void CalculateAvoidVelocity()
     {
+        if(InHitMove)
+            return;
         foreach (var agent in agentMoves)
         {
             if (agent == this)
@@ -414,14 +478,49 @@ public class AgentMove : MonoBehaviour
                 otherVelocity -= horizontalDragVelocity.normalized * airDrag * deltaTime;
             }
         }
-        otherVelocity.x = Mathf.Max(otherVelocity.x , 0);
-        //todo:解决接触到地面后，Y方向速度需要直接减少到0
-        otherVelocity.y = Mathf.Max(otherVelocity.y - Gravity * deltaTime, 0);
-        otherVelocity.z = Mathf.Max(otherVelocity.z, 0);
+        if (preHitMove != InHitMove)
+        {
+            HitMoveStateChangeCallBack.Invoke();
+        }
+
+        preHitMove = InHitMove;
     }
 
     public void SetOtherVelocity(Vector3 v)
     {
         otherVelocity = v;
+    }
+
+    private void ResetOtherVelocity()
+    {
+        otherVelocity=Vector3.zero;
+    }
+
+    private void ResetDesireVelocity()
+    {
+        desireVelocity=Vector3.zero;
+        
+    }
+
+    private void GroundStateChange()
+    {
+        if (Grounded)
+        {
+            otherVelocity.y = 0;
+            Debug.Log("<color=green>grounded</color>");
+        }
+        else
+        {
+            Debug.Log("<color=red>grounded fa</color>");
+        }
+    }
+
+    private void HitMoveStateChange()
+    {
+        if (InHitMove == false)
+        {
+            _agent.Warp(transform.position);
+            Move(destination);
+        }
     }
 }
