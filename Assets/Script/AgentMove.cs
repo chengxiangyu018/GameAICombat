@@ -278,7 +278,7 @@ public class AgentMove : MonoBehaviour
                 {
                     desireVelocity -= otherVelocity;
                     ResetOtherVelocity();
-                    UnityEditor.EditorApplication.isPaused = true;
+                    //UnityEditor.EditorApplication.isPaused = true;
                 }
             }
         }
