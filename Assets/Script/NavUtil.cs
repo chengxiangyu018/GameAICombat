@@ -1,4 +1,5 @@
-namespace NavTest;
+using System.Collections.Generic;
+
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -34,7 +35,7 @@ public static class NavUtil
         {
             if (selfAgent.ID == agentMove.ID)
                 continue;
-            float avoidZone = Mathf.Max(agentMove.Agent.radius, agentMove.Agent.radius);
+            float avoidZone = Mathf.Max(agentMove.agent.radius, agentMove.agent.radius);
             Vector3 dirToAgent = agentMove.transform.position - agentMove.transform.position;
             
             float angle = Vector3.Angle(dirToAgent, agentMove.transform.forward);
