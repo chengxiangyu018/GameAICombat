@@ -23,6 +23,8 @@ public class AgentMove2 : MonoBehaviour
     public Vector2 velocity2d => new Vector2(agent.velocity.x, agent.velocity.z); 
     public bool isTagged { get; set; }
 
+    public List<AgentMove2> neighbors = new List<AgentMove2>();
+
     public void Start()
     {
         agent = GetComponent<NavMeshAgent>();
