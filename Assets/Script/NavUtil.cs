@@ -33,7 +33,7 @@ public static class NavUtil
         Vector3 res = Vector3.zero;
         foreach (var agentMove in agentMap.Values)
         {
-            if (selfAgent.ID == agentMove.ID)
+            if (selfAgent.id == agentMove.id)
                 continue;
             float avoidZone = Mathf.Max(agentMove.agent.radius, agentMove.agent.radius);
             Vector3 dirToAgent = agentMove.transform.position - agentMove.transform.position;
