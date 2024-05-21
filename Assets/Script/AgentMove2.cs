@@ -22,13 +22,15 @@ public class AgentMove2 : MonoBehaviour
 
     public SteeringController steeringController { get; private set; }
     public Vector2 desireVelocity;
-
+    public AgentMove2 leader;
+    
     public void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         InitAgent();
         steeringController = new SteeringController();
         steeringController.Init();
+        isTagged = true;
     }
 
     private void InitAgent()
@@ -36,6 +38,7 @@ public class AgentMove2 : MonoBehaviour
         agent.updatePosition = false;
         agent.updateRotation = false;
         agent.updateUpAxis = false;
+        agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
     }
 
     public void MoveTo(Vector3 destination)

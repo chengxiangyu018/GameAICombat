@@ -11,12 +11,19 @@ public class AgentMgr:MonoBehaviour
     private int _idToAllocate = 0;
     public int neighborRange;
     public int count;
+    public Vector3 groupTarget1;
+    public Vector3 groupTarget2;
+    
     private void Start()
     {
         for (int i = 0; i < count; i++)
         {
+            int group = 1;
+            if (i > count / 2.0f)
+                group = 2;
             var agent = CreateAndInitAgent();
             agent.transform.position = Vector3.zero;
+            agent.steeringController.groupId = group;
         }
     }
 
@@ -31,6 +38,7 @@ public class AgentMgr:MonoBehaviour
     
     private void Update()
     {
+        ListenTargetChanged();
         UpdateNeighbors();
         UpdateSteeringForce();
         ApplyVelocity();
@@ -64,6 +72,58 @@ public class AgentMgr:MonoBehaviour
             self.ApplyVelocity();
         }
     }
+
+    private void ListenTargetChanged()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            if (Physics.Raycast(ray.origin, ray.direction, out var hitInfo))
+            {
+                groupTarget1 = hitInfo.point;
+                SelectLeader(1);
+            }
+        }
+        if (Input.GetMouseButtonDown(0)&&Input.GetKeyDown(KeyCode.LeftControl))
+        {
+            var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            if (Physics.Raycast(ray.origin, ray.direction, out var hitInfo))
+            {
+                groupTarget2 = hitInfo.point;
+                SelectLeader(2);
+            }
+        }
+    }
+
+    private void SelectLeader(int groupId)
+    {
+        AgentMove2 leader = null;
+        float minPos = float.MaxValue;
+
+        foreach (var agent in _agentMap.Values)
+        {
+            if (agent.steeringController.groupId == groupId)
+            {
+                agent.leader = null;
+                var dis = Vector3.Distance(agent.transform.position, groupTarget1);
+                if (leader == null || dis < minPos)
+                {
+                    leader = agent;
+                    minPos = dis;
+                }
+
+            }
+        }
+    
+        foreach (var agent in _agentMap.Values)
+        {
+            if (agent.steeringController.groupId == groupId && agent != leader)
+            {
+                agent.leader = leader;
+            }
+        }
+    }
+
     private bool IsNeighbor(AgentMove2 agent1,AgentMove2 agent2)
     {
         var range = agent1.agent.radius + agent2.agent.radius + neighborRange;

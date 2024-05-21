@@ -16,7 +16,9 @@ public class SteeringController
     private Dictionary<int, Func<AgentMove2, Vector2>> _flockingDic;
     private FlockingParam _flockingParam;
     public List<AgentMove2> neighbors = new List<AgentMove2>();
-
+    public bool isWaiting;
+    public int groupId = 0;
+    public bool isLeader = true;
     public void Init()
     {
         _flockingDic = new Dictionary<int, Func<AgentMove2, Vector2>>()
@@ -26,6 +28,7 @@ public class SteeringController
             {(int)FlockingType.Cohesion,Cohesion},
         };
         _flockingParam = new FlockingParam();
+        isWaiting = false;
     }
 
     public Vector2 Separation(AgentMove2 self) 
@@ -33,11 +36,10 @@ public class SteeringController
         Vector2 steeringForce = Vector3.zero;
         foreach (var nb in neighbors)
         {
-            if (self != nb && nb.isTagged)
-            {
-                Vector2 toAgent = self.pos2D - nb.pos2D;
-                steeringForce += toAgent.normalized / toAgent.magnitude;
-            }
+            if (self == nb || !nb.isTagged)
+                continue;
+            Vector2 toAgent = self.pos2D - nb.pos2D;
+            steeringForce += toAgent.normalized / toAgent.magnitude;
         }
 
         return steeringForce;
@@ -49,13 +51,13 @@ public class SteeringController
         int nbCount = 0;
         foreach (var nb in neighbors)
         {
-            if (self != nb && nb.isTagged)
-            {
-                averageHeading += nb.forward2D;
-                nbCount++;
-            }
+            if (self == nb || !nb.isTagged)
+                continue;
+            averageHeading += nb.forward2D;
+            nbCount++;
 
         }
+
         //不止一个nb,averageHeading取平均
         if (nbCount > 0)
         {
@@ -74,11 +76,10 @@ public class SteeringController
 
         foreach (var nb in neighbors)
         {
-            if (self != nb && nb.isTagged)
-            {
-                centerOfMass += nb.pos2D;
-                nbCount++;
-            }
+            if (self == nb || !nb.isTagged)
+                continue;
+            centerOfMass += nb.pos2D;
+            nbCount++;
         }
 
         if (nbCount > 0)
@@ -88,6 +89,44 @@ public class SteeringController
 
         var steeringForce = Seek(self,centerOfMass);
         return steeringForce;
+    }
+
+    public Vector2 Avoidence(AgentMove2 self)
+    {
+        Vector2 steeringForce = Vector2.zero;
+        foreach (var nb in neighbors)
+        {
+            if (self == nb || !nb.isTagged)
+                continue;
+            if (nb.steeringController.isWaiting)
+                continue;
+            Vector3 toAgent = self.transform.position - nb.transform.position;
+            if (toAgent.magnitude < self.agent.radius + nb.agent.radius + _flockingParam.avoidanceRadius)
+            {
+                Wait(self);
+            }
+
+        }
+        return steeringForce;
+    }
+
+    public void SelectLeader(Vector3 target)
+    {
+        foreach (var VARIABLE in COLLECTION)
+        {
+            
+        }
+    }
+
+    private void Wait(AgentMove2 self)
+    {
+        self.agent.isStopped = true;
+        isWaiting = true;
+    }
+    private void Resume(AgentMove2 self)
+    {
+        self.agent.isStopped = false;
+        isWaiting = false;
     }
 
     public Vector2 Seek(AgentMove2 agent,Vector2 targetPos)
@@ -124,6 +163,7 @@ public class FlockingParam
 {
     public byte flockingMask;
     public float maxForce = 99f;
+    public float avoidanceRadius = 0.5f;
 }
 
     
